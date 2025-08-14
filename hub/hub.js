@@ -4,16 +4,21 @@ const { Server } = require('socket.io');
 const Chance = require('chance');
 
 const chance = new Chance();
-const io = new Server(3001); // Change to your actual port if needed
+const io = new Server(3001);
 
-// Create the namespace
 const orderOut = io.of('/orderOut');
 
-orderOut.on('connection', (orderConnection) => {
+orderOut.on('connection', (socket) => {
   console.log('✅ Client connected to /orderOut namespace');
 
-  // Listen for a new order event
-  orderConnection.on('newOrder', () => {
+  // Allow clients to join specific queues
+  socket.on('SUBSCRIBE', ({ queueId }) => {
+    socket.join(queueId);
+    console.log(`📥 Client joined queue: ${queueId}`);
+  });
+
+  // Vendor creates a new order
+  socket.on('newOrder', () => {
     const orderData = {
       orderId: chance.guid(),
       customerName: chance.name(),
@@ -27,11 +32,22 @@ orderOut.on('connection', (orderConnection) => {
 
     console.log('📦 New Order:', orderData);
 
-    // Emit the new order to all clients in the namespace
-    orderOut.emit('orderCreated', orderData);
+    // Send to all drivers subscribed
+    orderOut.to('drivers').emit('PICKUP', orderData);
   });
 
-  orderConnection.on('disconnect', () => {
+  // Driver updates order status
+  socket.on('IN-TRANSIT', (payload) => {
+    console.log(`🚚 Order ${payload.orderId} is in transit by ${payload.driverName}`);
+    orderOut.emit('IN-TRANSIT', payload);
+  });
+
+  socket.on('DELIVERY', (payload) => {
+    console.log(`✅ Order ${payload.orderId} delivered by ${payload.driverName}`);
+    orderOut.emit('DELIVERY', payload);
+  });
+
+  socket.on('disconnect', () => {
     console.log('❌ Client disconnected from /orderOut');
   });
 });
